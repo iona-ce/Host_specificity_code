@@ -1,0 +1,344 @@
+---
+title: "Host_specificty_calculation"
+author: "Iona Cunningham-Eurich"
+date: "2023-07-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Libraries 
+
+```{r message = FALSE}
+library(dplyr)
+library(data.table)
+library(magrittr)
+```
+
+#### Loading data 
+
+Here, data is stored in file Data in the repository. Additionally, create at this point another file to store data, here named "Host_file" ("Data/Host_file")
+
+```{r}
+# Load data
+data_taxonomy_confidence_effort <- read.csv("Data/03c_Host_Data_Taxonomy_Confidence_Effort.csv")
+
+# Basic data checks 
+length(unique(data_taxonomy_confidence_effort$Parasitoid))
+unique(data_taxonomy_confidence_effort$Parasitoid)
+```
+
+#### Compilation of HostRangeIndices function 
+
+Host specificity calculator, adapted from Paul K. Abram, Roselyne M. Labbe, Peter G. Mason, 'Ranking the host range of biological control agents with quantitative metrics of taxonomic specificity', Biological Control, Volume 152,2021, 104427, ISSN 1049-9644,https://doi.org/10.1016/j.biocontrol.2020.104427
+
+#### Initialisation 
+
+Packages 
+
+```{r message = FALSE}
+library(ape)
+library(dendextend)
+```
+
+Compile HostRangeIndices function from paper.
+
+This function has been adapted to:
+
+ * Format the results as a table
+ * Add the species names to the dendrograms 
+ * I will be adding code to present all dendrograms in a single figure soon.
+
+```{r}
+HostRangeIndices <- function(taxa_names) #####function to calculate host range indices. Compile this function first.
+{
+  taxa <- read.table (taxa_names) #read in file containing host taxonomic information
+  ###Calculate species richness###
+  SR <- nrow(taxa)
+  
+  if (nrow(taxa)==1) #for cases where there is only a single host species, output STD and PSV with no calculations
+  {
+    data.frame(row.names = c("SR", "STD", "PSV"),
+               value = c(print(as.numeric(SR)),
+                         print(as.numeric(1)),
+                         print(as.numeric(0))))
+  }
+  else #for cases with more than one host species
+  {
+    ###Calculate STD###
+    count=0
+    potentialcount=0
+    taxalist<-taxa
+    for(i in 1:(nrow(taxa)-1)) #nested loops to perform double-summation
+    {
+      focaltaxon <- taxalist[c(1),]
+      others <- taxalist[-c(1),]
+      for(j in 1:nrow(others)) 
+      {
+        for (k in length(others):1)
+        {
+          if (k == length(others)) #for cases where two species names may be the same; assumes no duplicates
+          {
+            count = count + 1 
+          }
+          else
+          {    
+            if (as.character(others[j,k]) !=as.character(focaltaxon[1,k])) {count = count + 1} #calculates sum of pairwise taxonomic distances 
+          }
+        }#end of for k loop
+        potentialcount=potentialcount + (length(others)) #calculates maximum possible sum of pairwise taxonomic differences
+      }#end of for j loop 
+      taxalist<-others
+    }#end of for i loop
+    
+    STD <- 2*count/(nrow(taxa)*(nrow(taxa)-1)) #calculates STD
+    
+    ###Calculate PSVt###  
+    #calculate shared branch length between each pair of species to populate variance matrix "V"
+    V <- matrix(NA,nrow=nrow(taxa),ncol=nrow(taxa))
+    #this series of nested loops populates the variance/covariance matrix
+    for(a in 1:(nrow(taxa))) #cycle through each focal species in the list
+    {
+      focaltaxon <- taxa[c(a),]
+      for (b in 1:nrow(taxa)) #cycle through each compared species in the list
+      {
+        flag = 0  #reset flag
+        for (c in 1:length(taxa)) #cycle through taxonomic levels to find shared branch length
+        {
+          if (as.character(taxa[b,c])!=as.character(focaltaxon[1,c])) 
+          {
+            if (flag == 0)
+            {
+              V[a,b] = c-2
+              flag = 1
+            }
+          }
+          if (length(taxa) == c) 
+          {
+            if (flag == 0){V[a,b] = length(taxa)-1}
+          }
+        }#end of c loop
+      } #end of b loop
+    }#end of a loop
+    
+    sigma = 1/(length (taxa)-1) #calculate sigma, the rate of evolutionary divergence (inverse of the number of steps between taxonomic divisions)
+    C = V*sigma #convert variance/covariance matrix to correlation matrix
+    Cp = C #make new correlation matrix to alter off-diagonal elements
+    diag(Cp) <- NA #set diagonal elements of C to NA  so they are not included in the mean calculation
+    PSV = 1-mean (Cp, na.rm=TRUE) #calculate PSVt, i.e. mean of off-diagonal elements of C and subtract from one
+    
+    #plot representative dendrogram
+    D = (1-C)/sigma #convert correlation matrix to dissimilarity matrix for dendrogram construction
+    dend<-as.phylo(hclust(as.dist(D)))
+    labels(dend)<-paste(as.character(taxa[,length(taxa)-1]), as.character(taxa[,length(taxa)]))
+    title <- substr(gsub(x = taxa_names, pattern = c("Data/Host_file/Hosts_|\\.txt") , replacement = ""),1,nchar(taxa_names)) # Added in this information for title of dendrograms 
+    plot(dend,cex = 0.4,show.tip.label=FALSE,direction="upwards",lwd=1.5,main=title) #species names can be added to branch tips by setting show.tip.label to TRUE
+    
+    #output results of metric calculations
+    data.frame(row.names = c("SR", "STD", "PSV"),
+               value = c(print(as.numeric(SR)),
+                         print(as.numeric(STD)),
+                         print(as.numeric(PSV))))
+    
+    
+  }#end of else
+}#end of HostRangeIndices function
+```
+
+#### Tidying data 
+
+Make sure that all parasitoid/host associations are unique. Some associations are duplicated because of different collection methods. Duplicated associations therefore need to be removed. There is therefore an assumption here that all recorded associations, no matter the collection method, are valid parasitoid/host associations.
+
+```{r}
+# Remove collection method and other non-essential information; i.e. keep taxonomic information only. 
+data_taxonomy_confidence_effort_unique <- data_taxonomy_confidence_effort[, c("Parasitoid", "Parasitoid_genus", "Parasitoid_species",
+                                                                              "superfamily", "family", "subfamily", "Host_genus",
+                                                                              "Host_species", "Host")]
+
+# Remove duplicated rows 
+data_taxonomy_confidence_effort_unique <- distinct(data_taxonomy_confidence_effort_unique)
+```
+
+The calculations of host specificity that will be used here rely on taxonomic information. It is necessary to make sure that each association is distinct and that missing data does not cause for it to look like a parasitoid is known to associate with multiple species when actually there is missing data for the association at a higher level of taxonomy. For instance, a species might be known to associate with a species (Genus A + Species A), but there is also a record for it associating with Genus A + Unknown Species. In this scenario, I cannot be certain that this is a different species or not. Therefore, it is necessary to remove any records where this overlap may occur, which would artifically decrease the perception of host specificity. 
+
+At the genus level, for this dataset, it is necessary to remove any parasitoid/host association records that are unknown; they already exist for all parasitoid species. Remove these: 
+
+```{r}
+#Define function nin
+`%nin%` <- Negate(`%in%`)
+
+# Remove associations where genus is "-"
+data_taxonomy_confidence_effort_unique <- data_taxonomy_confidence_effort_unique[data_taxonomy_confidence_effort_unique$Host_genus %nin% c("-"),] 
+```
+
+The next step is to do the same at the species level; however here, new genera must be retained, even if the species is unknown, whilst duplicated genera need to be removed. This can be done with the following code. 
+
+```{r}
+# Define function
+for (a_val in unique(data_taxonomy_confidence_effort_unique$Parasitoid[data_taxonomy_confidence_effort_unique$Host_species == "-"])) {
+  b_val <- data_taxonomy_confidence_effort_unique$Host_genus[data_taxonomy_confidence_effort_unique$Parasitoid == a_val 
+                                                             & data_taxonomy_confidence_effort_unique$Host_species != "-"]
+  
+  data_taxonomy_confidence_effort_unique <- data_taxonomy_confidence_effort_unique[!(data_taxonomy_confidence_effort_unique$Parasitoid == a_val 
+                                                                                     & data_taxonomy_confidence_effort_unique$Host_species == "-" 
+                                                                                     & data_taxonomy_confidence_effort_unique$Host_genus %in% b_val), ]
+}
+```
+
+Check data 
+
+```{r}
+# Check numnber of rows 
+nrow(data_taxonomy_confidence_effort_unique)
+
+# Check the number of unique parasitoid species 
+length(unique(data_taxonomy_confidence_effort_unique$Parasitoid))
+```
+
+
+The number of unique parasitoid/host interactions is now 138 for 29 Aleiodes species.
+
+#### Calculation of host specificity indices 
+
+##### Setting up 
+
+Divide records of parasitoid/host associations into a list by parasitoid. 
+
+```{r}
+# Split list by parasitoid 
+aleiodes_hosts_list <- split(data_taxonomy_confidence_effort_unique,
+                             data_taxonomy_confidence_effort_unique$Parasitoid)
+```
+
+Remove first two columns of all tables - remove information about Aleiodes (this is not necessary to calculate host range specificity)
+
+```{r}
+# Remove uneccessary information 
+aleiodes_hosts_list <- lapply(aleiodes_hosts_list, 
+                              function(x) x[!(names(x) %in% c("Host","Parasitoid", "Parasitoid_genus", "Parasitoid_species"))])
+
+```
+
+Make these into individual .txt files in a new file. This is necessary to perform the function HostRangeIndices(). 
+
+```{r results = FALSE}
+# For loop to make into individual text files in specified file. 
+for(i in 1:length(aleiodes_hosts_list)){
+  
+  write.table(aleiodes_hosts_list[[i]], 
+              file = paste0("Data/Host_file/Hosts_", names(aleiodes_hosts_list)[i], ".txt"), 
+              col.names = FALSE, 
+              quote = FALSE,
+              row.names = FALSE)
+  print(i)
+}
+```
+
+Change layout to ensure all graphs fit into a single image. This is not needed when using Markdown but works with a normal script.
+
+```{r}
+# par(mfrow = c(4,6))
+```
+
+Load file names into R. 
+
+```{r}
+# Create vector of file names 
+file_names <- list.files("Data/Host_file", full.names = TRUE)
+```
+
+#### Calculations 
+
+```{r}
+# Apply HostRangeIndices function to Aleiodes data 
+aleiodes_host_specificity_list <- lapply(file_names, HostRangeIndices)
+```
+Ensure that there are 3 values per list; here choosing one at random to check.
+
+```{r}
+# Data checks 
+aleiodes_host_specificity_list[11]
+```
+
+Rename list elements. 
+
+```{r}
+# Rename
+names(aleiodes_host_specificity_list) <- names(aleiodes_hosts_list)
+
+# Check that this has worked 
+aleiodes_host_specificity_list[11]
+```
+The name of the parasitoid species now appears as the name of that specific list element. 
+
+Make this into a table.
+
+```{r}
+# Transform into data frame 
+aleiodes_host_specificity_dataframe <- data.frame(matrix(unlist(aleiodes_host_specificity_list), 
+                                                         nrow=length(aleiodes_host_specificity_list),
+                                                         byrow=TRUE))
+```
+
+Add column and row names.
+ * SR = Species richness (i.e Number of species)
+ * STD = Taxonomic Host Range 
+ * PSV = Phylogenetic Species Variability
+
+```{r}
+# Change colnames and rownames 
+colnames(aleiodes_host_specificity_dataframe) <- c("SR", "STD", "PSV")
+rownames(aleiodes_host_specificity_dataframe) <- names(aleiodes_host_specificity_list)
+
+# Check this has worked 
+head(aleiodes_host_specificity_dataframe)
+
+# Check data 
+nrow(aleiodes_host_specificity_dataframe)
+```
+For the purposes of saving as a .csv file, the row names need to be transformed into a column. 
+
+```{r}
+# Change rownames to column 
+aleiodes_host_specificity_dataframe <- tibble::rownames_to_column(aleiodes_host_specificity_dataframe, "Parasitoid")
+```
+
+Arrange table by taxonomic host specificity ranking
+```{r}
+# Sort elements in table by STD and SR
+aleiodes_host_specificity_dataframe <- aleiodes_host_specificity_dataframe[order(aleiodes_host_specificity_dataframe$STD, aleiodes_host_specificity_dataframe$SR), ]
+head(aleiodes_host_specificity_dataframe)
+```
+Add to this file data about number of superfamilies, families, subfamilies for each parasitoid. First, summarise the number of superfamilies, families and subfamilies per species.
+
+```{r}
+# Summarise number of superfamilies, families, subfamilies
+group_by_parasitoid <- 
+  data_taxonomy_confidence_effort_unique%>%
+  group_by(Parasitoid) %>%
+  summarise(Superfamily = n_distinct(superfamily), 
+            Family = n_distinct(family),
+            Subfamily = n_distinct(subfamily))
+```
+
+Merge the two datasets together. 
+
+```{r}
+# Merge datasets 
+aleiodes_host_specificity_dataframe <- merge(group_by_parasitoid, aleiodes_host_specificity_dataframe, by = "Parasitoid")
+
+# Check data 
+head(aleiodes_host_specificity_dataframe)
+```
+
+Save the data 
+
+```{r}
+# Save this 
+write.csv(aleiodes_host_specificity_dataframe, "Data/Aleiodes_host_specificity_calculation.csv",
+          row.names = FALSE)
+```
+
+

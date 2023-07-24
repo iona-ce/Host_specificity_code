@@ -1,0 +1,15 @@
+Bombycoidea Lasiocampidae Lasiocampinae Lasiocampa quercus
+Bombycoidea Lasiocampidae Lasiocampinae Macrothylacia rubi
+Bombycoidea Lasiocampidae Lasiocampinae Euthrix potatoria
+Noctuoidea Erebidae Lymantriinae Orgyia antiqua
+Noctuoidea Erebidae Lymantriinae Orgyia dubia
+Noctuoidea Erebidae Lymantriinae Dicallomera fascelina
+Noctuoidea Erebidae Arctiinae Arctia caja
+Noctuoidea Erebidae Arctiinae Arctia villica
+Noctuoidea Erebidae Arctiinae Arctia flavia
+Noctuoidea Erebidae Arctiinae Diacrisia sannio
+Noctuoidea Erebidae Arctiinae Spilosoma lubricipeda
+Noctuoidea Erebidae Arctiinae Spilosoma luteum
+Noctuoidea Erebidae Arctiinae Spilosoma urticae
+Noctuoidea Erebidae Arctiinae Diaphora mendica
+Noctuoidea Erebidae Arctiinae Phragmatobia fuliginosa
